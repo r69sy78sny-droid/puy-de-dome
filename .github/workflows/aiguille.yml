@@ -1,0 +1,151 @@
+# Toutes les 20 minutes : lit l'heure des derniers runs des modèles (Open-Meteo), retélécharge ceux qui
+# ont changé, recalcule l'aiguille, committe data/ et republie le site. Aussi à chaque push sur main,
+# à la demande, et quand le propriétaire écrit « volé » / « pas volé » dans l'issue d'alertes.
+# Réglage requis une fois : Settings → Pages → Source « GitHub Actions ».
+#
+# Le planificateur de GitHub abandonne des passages sans prévenir quand ses serveurs sont chargés
+# (constaté : 2 passages en 10 h). Chaque vérification programme donc elle-même la suivante (job
+# « relance » : attente puis workflow_dispatch, seul événement que GITHUB_TOKEN peut déclencher).
+# Une seule relance en attente à la fois ; le cron ne sert plus que de filet si la chaîne casse.
+name: Aiguille météo
+
+on:
+  schedule:
+    - cron: '4,24,44 * * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Tout retélécharger'
+        type: boolean
+        default: false
+      relance:
+        description: 'Vérification automatique (relance), comme le cron'
+        type: boolean
+        default: false
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  issues: write
+  actions: write
+
+jobs:
+  update:
+    if: github.event_name != 'issue_comment' || (github.event.comment.user.login == github.repository_owner && !github.event.issue.pull_request)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: aiguille
+      cancel-in-progress: false
+    outputs:
+      changed: ${{ steps.run.outputs.changed }}
+      relance: ${{ steps.chain.outputs.needed }}
+    steps:
+      # Un passage du cron ne reprend pas la main si une relance est déjà en attente.
+      - name: Relance nécessaire ?
+        id: chain
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          SELF: ${{ github.run_id }}
+        run: |
+          if [ "$EVENT" != "schedule" ]; then echo "needed=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          others=$(gh run list --workflow aiguille.yml --status in_progress --json databaseId --jq "[.[] | select(.databaseId != $SELF)] | length") || others=0
+          if [ "$others" = "0" ]; then echo "needed=true" >> "$GITHUB_OUTPUT"; else echo "needed=false" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Tests du moteur
+        run: npm test
+
+      - name: Vol signalé dans l'issue (« volé », « pas volé », « oublie »)
+        if: github.event_name == 'issue_comment'
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: node scripts/observed.mjs
+
+      - name: Mise à jour de l'aiguille
+        id: run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PARAGLIDABLE_KEY: ${{ secrets.PARAGLIDABLE_KEY }}
+          FORCE: ${{ inputs.force }}
+          RELANCE: ${{ inputs.relance }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          ARGS=""
+          if [ "$EVENT" = "push" ] || [ "$EVENT" = "issue_comment" ]; then ARGS="--recombine"; fi
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$RELANCE" != "true" ]; then ARGS="--recombine"; fi
+          if [ "$FORCE" = "true" ]; then ARGS="--force"; fi
+          node scripts/update.mjs $ARGS
+
+      - name: Committer les données
+        if: steps.run.outputs.changed == 'true'
+        env:
+          SUMMARY: ${{ steps.run.outputs.summary }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "Rien à committer."; exit 0; fi
+          git commit -m "$SUMMARY"
+          for i in 1 2 3; do git pull --rebase && git push && break; sleep 5; done
+
+  deploy:
+    needs: update
+    if: needs.update.outputs.changed == 'true' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.relance)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Préparer le site
+        run: |
+          mkdir _site
+          cp -r index.html css js engine data _site/
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  relance:
+    needs: [update, deploy]
+    if: always() && needs.update.result != 'skipped' && needs.update.result != 'cancelled' && needs.update.outputs.relance != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: relance
+      cancel-in-progress: true # une relance plus récente remplace celle qui attend
+    steps:
+      - name: Attendre puis lancer la vérification suivante
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          STOP_AFTER: '2026-10-18T20:00:00Z'
+        run: |
+          sleep 1080
+          if [ "$(date -u +%s)" -gt "$(date -u -d "$STOP_AFTER" +%s)" ]; then echo "Journée terminée : plus de relance."; exit 0; fi
+          gh workflow run aiguille.yml -f relance=true
