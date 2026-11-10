@@ -3,23 +3,23 @@
 Site : https://r69sy78sny-droid.github.io/puy-de-dome/
 
 Une aiguille de **−180** (impossible) à **+180** (tu pourras voler) répond à une seule question :
-*un pilote titulaire du brevet initial pourra-t-il voler au Puy de Dôme dimanche 18 octobre 2026 ?*
-Elle vaut `360 × P − 180`, où P est la probabilité d'avoir au moins 2 h volables d'affilée entre 10 h et 18 h.
-Site dérivé du VU-mètre du stage Fly Millau, même moteur, autre site et autres limites.
+*un pilote titulaire du brevet initial pourra-t-il voler au Puy de Dôme du vendredi 27 au dimanche 29 novembre 2026 ?*
+Elle vaut `360 × P − 180`, où P est la probabilité qu'au moins une des 3 journées offre 2 h volables d'affilée entre 10 h et 16 h (fenêtre d'hiver).
+Site dérivé du VU-mètre du stage Fly Millau, même moteur, autre site et autres limites. Pour changer de dates : bloc STAGE de engine/config.js, puis `node scripts/build-climatology.mjs`.
 
 ## Comment l'aiguille est calculée
 
-1. **Journée volable** : au moins 2 h d'affilée volables entre 10 h et 18 h. Heure volable : pluie < 0,2 mm,
+1. **Journée volable** : au moins 2 h d'affilée volables entre 10 h et 16 h. Heure volable : pluie < 0,2 mm,
    vent ≤ 20 km/h, rafales ≤ 25 km/h, vent à 850 hPa (≈ altitude du sommet) ≤ 35 km/h, pas de nuage au
    décollage, pas d'orage. Aucune direction n'est exclue (huit aires de décollage). Seuils dans
    `engine/config.js` (profil « débutant » de Déco Radar), à faire valider par un moniteur.
 2. **Prévisions** : 11 ensembles et 11 modèles déterministes via [Open-Meteo](https://open-meteo.com/).
 3. **Recalage du vent** : pas d'anémomètre ouvert au sommet. Les modèles grossiers sont recalés sur AROME HD
-   (1,3 km, qui résout le cône) par rapports de quantiles, octobre-novembre 2023-2025 : ERA5 vent ×1,05 /
-   rafales ×1,13 ; ICON-EU ×1,00 / ×0,87.
+   (1,3 km, qui résout le cône) par rapports de quantiles, novembre-décembre 2023-2025 : ERA5 vent ×1,05 /
+   rafales ×1,11 ; ICON-EU ×1,00 / ×0,85.
 4. **Pas de calibration locale** : les coefficients de la courbe marge → probabilité sont empruntés à la
    station de Millau. La probabilité est plausible mais pas calibrée au Puy de Dôme.
-5. **Échéance** : au-delà d'une dizaine de jours, mélange avec la climatologie (ERA5 1993-2025, 11-25 octobre).
+5. **Échéance** : au-delà d'une dizaine de jours, mélange avec la climatologie (ERA5 1993-2025, 20-30 novembre, fenêtres de 3 jours consécutifs).
 6. **Paraglidable** (facultatif) : actif si le secret `PARAGLIDABLE_KEY` correspond à une clé dont un point est
    à moins de 5 km du décollage.
 
@@ -33,7 +33,7 @@ ont changé, recalcule, committe `data/` et republie. Si l'aiguille bouge d'au m
 alerte, un commentaire est posté sur l'issue « 🎯 Alertes de l'aiguille ».
 
 **Après le vol**, réponds dans cette issue : `volé` (la journée compte comme volée), `pas volé`, ou `oublie`
-(retour à la prévision). Une carte de fin avec animation s'affiche après 18 h le 18 octobre
+(retour à la prévision). Une carte de fin avec animation s'affiche après 16 h le 29 novembre
 (aperçu : `?finale=succes`, `?finale=rate` ou `?finale=attente`).
 
 ## En local

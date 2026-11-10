@@ -91,7 +91,7 @@ export function createGauge(container, { label = '' } = {}) {
   el('rect', { x: 0, y: BEZEL_Y, width: W, height: 1.5, fill: 'rgba(255,255,255,0.08)' }, svg);
   const bz = el('g', { fill: 'var(--bezel-ink)', 'font-family': 'system-ui, -apple-system, sans-serif', 'font-size': 12, 'letter-spacing': '1.5' }, svg);
   const b1 = el('text', { x: C.x, y: 338, 'text-anchor': 'middle', 'font-weight': 600 }, bz);
-  b1.textContent = 'PUY DE DÔME · DIM. 18 OCT. 2026';
+  b1.textContent = 'PUY DE DÔME · 27 — 29 NOV. 2026';
 
   function paintBand() {
     band.replaceChildren();

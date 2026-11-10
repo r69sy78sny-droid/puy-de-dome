@@ -1,4 +1,4 @@
-// Commande tapée dans l'issue d'alertes : « volé », « pas volé » ou « oublie » (le jour peut être précisé : « volé 18 »).
+// Commande tapée dans l'issue d'alertes : « volé », « pas volé » ou « oublie » (jour précisé : « volé 28 » ; sans numéro, le dernier jour commencé).
 // Met à jour data/observed.json ; la combinaison fixe alors la journée (1 ou 0) au lieu de la prévoir.
 
 import fs from 'node:fs';
@@ -11,7 +11,10 @@ const re = /\b(pas vole|pas volee|vole|volee|oublie|annule)\b(?:\s+(?:le\s+)?(\d
 let changed = [];
 for (const [, verb, dayArg] of body.matchAll(re)) {
   let day = dayArg;
-  const date = day ? STAGE.dates.find((d) => d.endsWith(`-${day.padStart(2, '0')}`)) : STAGE.dates[0];
+  // Sans numéro : le dernier jour commencé (heure de Paris), ou le premier si le stage n'a pas commencé.
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: STAGE.tz });
+  const started = STAGE.dates.filter((d) => d <= today);
+  const date = day ? STAGE.dates.find((d) => d.endsWith(`-${day.padStart(2, '0')}`)) : started.at(-1) ?? STAGE.dates[0];
   if (!date) continue;
   day = date.slice(8);
   if (verb.startsWith('oublie') || verb.startsWith('annule')) delete observed[date];

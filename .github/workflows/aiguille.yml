@@ -144,7 +144,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          STOP_AFTER: '2026-10-18T20:00:00Z'
+          STOP_AFTER: '2026-11-29T20:00:00Z'
         run: |
           sleep 1080
           if [ "$(date -u +%s)" -gt "$(date -u -d "$STOP_AFTER" +%s)" ]; then echo "Journée terminée : plus de relance."; exit 0; fi

@@ -58,7 +58,7 @@ if (now > Date.parse(`${STAGE.dates.at(-1)}T${String(STAGE.endUtcHour + 4).padSt
 const domains = new Set([...ENSEMBLES.flatMap((s) => s.meta), ...DETERMINISTIC.map((s) => s.meta).filter(Boolean)]);
 const metas = {};
 await Promise.all([...domains].map(async (d) => (metas[d] = await getMeta(d))));
-const windowStart = Date.parse(`${STAGE.dates[0]}T${String(STAGE.windowHours[0] - 2).padStart(2, '0')}:00:00Z`); // début de la fenêtre de vol
+const windowStart = Date.parse(`${STAGE.dates[0]}T${String(STAGE.windowHours[0] - STAGE.utcOffset).padStart(2, '0')}:00:00Z`); // début de la fenêtre de vol
 const latestMeta = (list) => list.map((d) => metas[d]).filter(Boolean).sort((a, b) => Date.parse(b.init) - Date.parse(a.init))[0] ?? null;
 /** Run qui a produit les données de la journée : le dernier s'il atteint la fenêtre, sinon le précédent. */
 const windowRun = (m, prevInit) => {
@@ -96,7 +96,7 @@ if (!REBUILD) {
       state.systems[sys.id] = { init: runInit, engine: ENGINE_VERSION, fetchedAt: summary.fetchedAt };
       refreshed.push(sys.id);
       if (newRun && summary.cover.some(Boolean)) triggers.push(`${sys.short} ${runLabel(runInit)}`);
-      log(`✓ ${sys.label} run ${runLabel(runInit)} — ${parsed.members.length} membres, matinées couvertes ${summary.cover.map((c) => (c ? '■' : '□')).join('')}, p = ${summary.days.map((d) => (d.p == null ? '—' : Math.round(d.p * 100))).join(' / ')}`);
+      log(`✓ ${sys.label} run ${runLabel(runInit)} — ${parsed.members.length} membres, journées couvertes ${summary.cover.map((c) => (c ? '■' : '□')).join('')}, p = ${summary.days.map((d) => (d.p == null ? '—' : Math.round(d.p * 100))).join(' / ')}`);
     } catch (e) {
       errors.push(`${sys.label} : ${e.message}`);
       log(`✗ ${sys.label} : ${e.message}`);
@@ -236,7 +236,7 @@ async function postAlert(prevScore) {
   const body = [
     `@${owner} l'aiguille est passée de **${fmtScore(prevScore)}** à **${fmtScore(report.score)}** (${fmtScore(delta)} points).`,
     '',
-    `**Probabilité de pouvoir voler ${STAGE.dayLabel} : ${Math.round(report.p * 100)} %** — ${report.verdict.label}.`,
+    `**Probabilité de pouvoir voler ${STAGE.goalLabel} ${STAGE.dayLabel} : ${Math.round(report.p * 100)} %** — ${report.verdict.label}.`,
     '',
     '| Journée | Volable |',
     '|---|---|',
@@ -274,6 +274,6 @@ writeJson('data/state.json', state);
 
 const summary = `🎯 ${last ? `${fmtScore(last.score)} → ` : ''}${fmtScore(report.score)} (${Math.round(report.p * 100)} %) · ${triggers.join(', ') || process.env.TRIGGER_LABEL || 'recalcul'}`;
 log(summary);
-log('Matinées :', report.days.map((d) => `${d.label} ${Math.round(d.p * 100)} % (a=${d.a})`).join(' | '));
+log('Journées :', report.days.map((d) => `${d.label} ${Math.round(d.p * 100)} % (a=${d.a})`).join(' | '));
 if (errors.length) log('Avertissements :', errors);
 output(true, summary);

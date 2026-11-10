@@ -7,9 +7,10 @@ import { combine, blendRegimes, clusters, blendQuantiles, blendValue, systemWeig
 import { round, vectorMean, sector8 } from './flyability.js';
 
 const DAY_NAMES = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 export const dayLabel = (date) => {
   const d = new Date(`${date}T12:00:00Z`);
-  return `${DAY_NAMES[d.getUTCDay()]} ${d.getUTCDate()} octobre`;
+  return `${DAY_NAMES[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 };
 
 export function verdict(score) {
@@ -186,7 +187,7 @@ export function buildReport({ ens, det, clim, now = Date.now(), metas = {}, refr
     stage: { ...STAGE, sites: SITES, limits: LIMITS, points: POINTS, alertThreshold: ALERT.threshold },
     score: comb.score,
     p: comb.p,
-    pAll: comb.dist.at(-1), // les 4 matinées volables
+    pAll: comb.dist.at(-1), // toutes les journées volables
     verdict: verdict(comb.score),
     dist: comb.dist,
     expected: comb.expected,
@@ -201,7 +202,7 @@ export function buildReport({ ens, det, clim, now = Date.now(), metas = {}, refr
     climatology: {
       pMorning: clim.mornings.pMorning,
       pAtLeast: clim.mornings.pAtLeast,
-      pAll: clim.mornings.dist4.at(-1),
+      pAll: clim.mornings.dist4.at(-1), // dist4 : loi du nombre de jours volables (nom hérité)
       dist4: clim.mornings.dist4,
       period: clim.mornings.period,
       window: clim.mornings.window,
@@ -243,9 +244,10 @@ export function writeAnalysis(r) {
 
   // Synthèse
   out.summary.push(
-    `Probabilité de pouvoir voler ${r.stage.dayLabel} au Puy de Dôme avec le brevet initial : ${pct(r.p)} (aiguille ${signed(r.score)}). ` +
+    `Probabilité de pouvoir voler ${r.stage.goalLabel} ${r.stage.dayLabel} au Puy de Dôme avec le brevet initial : ${pct(r.p)} (aiguille ${signed(r.score)}). ` +
+    `Les ${r.days.length} journées sont volables dans ${pct(r.pAll)} des cas ; en moyenne ${fr(r.expected, 1)} journée(s) volable(s) sur ${r.days.length}. ` +
     `Il faut au moins 2 h d'affilée volables entre ${r.stage.windowHours[0]} h et ${r.stage.windowHours[1]} h. ` +
-    `Référence climatologique (${c.period}, ${c.window}) : ${pct(c.pAtLeast[0])}, soit ${signed(c.scoreClim)} sur l'aiguille.`,
+    `Référence climatologique (${c.period}, ${c.window}) : ${pct(c.pAtLeast[r.stage.sessionsNeeded - 1])}, soit ${signed(c.scoreClim)} sur l'aiguille.`,
   );
   if (aMean < 0.25) {
     out.summary.push(
@@ -257,6 +259,10 @@ export function writeAnalysis(r) {
   } else {
     out.summary.push(`Courte échéance : les prévisions pèsent ${pct(aMean)} ; l'aiguille reflète désormais surtout les modèles.`);
   }
+
+  const best = [...r.days].sort((a, b) => b.p - a.p)[0];
+  const worst = [...r.days].sort((a, b) => a.p - b.p)[0];
+  if (r.days.length > 1) out.summary.push(`Journée la plus favorable : ${best.label} (${pct(best.p)}). La plus fragile : ${worst.label} (${pct(worst.p)}).`);
 
   // Situation synoptique
   for (const d of r.days) {

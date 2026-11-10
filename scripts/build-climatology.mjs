@@ -6,9 +6,9 @@
 // prévisions, après recalage du vent sur AROME HD (1,3 km), le seul modèle récent qui résout le cône du Puy.
 //
 // Étapes :
-//  1. recalage : rapports de quantiles ERA5 / ICON-EU contre AROME HD, 1er oct.-5 nov. 2023-2025 (historique des
+//  1. recalage : rapports de quantiles ERA5 / ICON-EU contre AROME HD, 1er nov.-5 déc. 2023-2025 (historique des
 //     prévisions Open-Meteo) → facteurs BIAS de engine/config.js et relation rafale/vent ;
-//  2. climatologie : ERA5 1993-2025 heure par heure, du 1er au 31 octobre, évalué avec evaluateDay() ;
+//  2. climatologie : ERA5 1993-2025 heure par heure, du 1er au 30 novembre, évalué avec evaluateDay() ;
 //  3. références d'altitude : analyses GFS 2021-2025 (géopotentiel 500 hPa, T 850 hPa).
 //
 // Usage : node scripts/build-climatology.mjs   (CLIMATO_CACHE=<dossier> pour réutiliser des fichiers)
@@ -21,8 +21,11 @@ import { hourMargin, stationEquivalent, round, quantiles, mean, sector8, SECTORS
 
 const CACHE = process.env.CLIMATO_CACHE || '.cache';
 const YEARS = [1993, 2025];
-const WINDOW = [11, 25]; // jours d'octobre de la climatologie du jour : 11-25, soit ± 7 jours autour du 18
-const STRIP = [15, 21]; // colonnes de la frise « mêmes jours, années précédentes »
+const WINDOW = STAGE.climWindow; // jours du mois de la climatologie, autour des dates suivies
+const STRIP = STAGE.stripRange; // colonnes de la frise « mêmes jours, années précédentes »
+const MONTH = STAGE.month;
+const ND = STAGE.dates.length;
+const DAYS_IN_MONTH = new Date(Date.UTC(2025, MONTH, 0)).getUTCDate();
 const CALIB = { alpha: 0.697, beta: 2.301 }; // empruntée à la station de Millau (voir la méthode)
 const P = POINTS.deco;
 
@@ -50,15 +53,15 @@ const base = `latitude=${P.lat}&longitude=${P.lon}&elevation=${P.elevation}`;
 const HV = 'wind_speed_10m,wind_gusts_10m';
 const pairs = [];
 for (const y of [2023, 2024, 2025]) {
-  const rng = `start_date=${y}-10-01&end_date=${y}-11-05&hourly=${HV}&wind_speed_unit=kmh&timezone=Europe%2FParis`;
+  const rng = `start_date=${y}-11-01&end_date=${y}-12-05&hourly=${HV}&wind_speed_unit=kmh&timezone=Europe%2FParis`;
   const [a, e, i] = await Promise.all([
-    openMeteo(`https://historical-forecast-api.open-meteo.com/v1/forecast?${base}&${rng}&models=meteofrance_arome_france_hd`, `bias_arome_${y}.json`),
-    openMeteo(`https://archive-api.open-meteo.com/v1/archive?${base}&${rng}`, `bias_era5_${y}.json`),
-    openMeteo(`https://historical-forecast-api.open-meteo.com/v1/forecast?${base}&${rng}&models=icon_eu`, `bias_iconeu_${y}.json`),
+    openMeteo(`https://historical-forecast-api.open-meteo.com/v1/forecast?${base}&${rng}&models=meteofrance_arome_france_hd`, `bias_arome_${y}_nov.json`),
+    openMeteo(`https://archive-api.open-meteo.com/v1/archive?${base}&${rng}`, `bias_era5_${y}_nov.json`),
+    openMeteo(`https://historical-forecast-api.open-meteo.com/v1/forecast?${base}&${rng}&models=icon_eu`, `bias_iconeu_${y}_nov.json`),
   ]);
   a.hourly.time.forEach((t, k) => {
     const h = +t.slice(11, 13);
-    if (h < 9 || h > 17) return;
+    if (h < 9 || h > 16) return;
     const row = [a, e, i].map((x) => [x.hourly.wind_speed_10m[k], x.hourly.wind_gusts_10m[k]]);
     if (row.flat().some((v) => v == null)) return;
     pairs.push(row);
@@ -85,15 +88,15 @@ console.log('Recalage ERA5/ICON-EU → AROME HD :', JSON.stringify(bias), 'rafal
 
 // ---------------------------------------------------------------- 2. climatologie ERA5
 const KEYS = { t: 'temperature_2m', rh: 'relative_humidity_2m', rr: 'precipitation', cc: 'cloud_cover', ccl: 'cloud_cover_low', wc: 'weather_code', ws: 'wind_speed_10m', wd: 'wind_direction_10m', wg: 'wind_gusts_10m', cape: 'cape', p: 'pressure_msl' };
-const days = []; // un élément par jour d'octobre et par année
+const days = []; // un élément par jour du mois et par année
 for (let y = YEARS[0]; y <= YEARS[1]; y++) {
-  const url = `https://archive-api.open-meteo.com/v1/archive?${base}&start_date=${y}-10-01&end_date=${y}-10-31&hourly=${Object.values(KEYS).join(',')}&wind_speed_unit=kmh&timezone=Europe%2FParis`;
-  const H = (await openMeteo(url, `era5_${y}.json`)).hourly;
+  const url = `https://archive-api.open-meteo.com/v1/archive?${base}&start_date=${y}-${pad(MONTH)}-01&end_date=${y}-${pad(MONTH)}-${DAYS_IN_MONTH}&hourly=${Object.values(KEYS).join(',')}&wind_speed_unit=kmh&timezone=Europe%2FParis`;
+  const H = (await openMeteo(url, `era5_${y}_m${MONTH}.json`)).hourly;
   const idx = new Map(H.time.map((t, i) => [t, i]));
-  for (let d = 1; d <= 31; d++) {
-    const date = `${y}-10-${pad(d)}`;
+  for (let d = 1; d <= DAYS_IN_MONTH; d++) {
+    const date = `${y}-${pad(MONTH)}-${pad(d)}`;
     const get = (k, h) => {
-      const i = h >= 24 ? idx.get(`${y}-10-${pad(d + 1)}T${pad(h - 24)}:00`) : idx.get(`${date}T${pad(h)}:00`);
+      const i = h >= 24 ? idx.get(`${y}-${pad(MONTH)}-${pad(d + 1)}T${pad(h - 24)}:00`) : idx.get(`${date}T${pad(h)}:00`);
       return i == null ? null : H[KEYS[k]]?.[i] ?? null;
     };
     const e = evaluateDay(get, { bias: 'coarse', calib: CALIB, elevation: P.elevation });
@@ -118,7 +121,17 @@ const pDay = inWin.filter(ok).length / inWin.length;
 
 const limCount = {};
 for (const x of inWin) if (!ok(x)) limCount[x.e.lim ?? 'autre'] = (limCount[x.e.lim ?? 'autre'] ?? 0) + 1;
-const windows = inWin.map((x) => [ok(x) ? 1 : 0]);
+// Fenêtres de ND jours consécutifs (même année) : un modèle de ce que le temps fait sur plusieurs jours d'affilée.
+const byKey = new Map(days.map((x) => [`${x.y}-${x.d}`, x]));
+const windows = [];
+for (let y = YEARS[0]; y <= YEARS[1]; y++) {
+  for (let d0 = WINDOW[0]; d0 + ND - 1 <= WINDOW[1]; d0++) {
+    const w = Array.from({ length: ND }, (_, i) => byKey.get(`${y}-${d0 + i}`));
+    if (w.every((x) => x?.e.cover)) windows.push(w.map((x) => (ok(x) ? 1 : 0)));
+  }
+}
+const dist = Array.from({ length: ND + 1 }, (_, k) => windows.filter((w) => w.reduce((s, v) => s + v, 0) === k).length / windows.length);
+const pAtLeast = Array.from({ length: ND }, (_, k) => dist.slice(k + 1).reduce((s, v) => s + v, 0));
 
 // persistance d'un jour à l'autre
 let ff = 0, fn = 0, nf = 0, nn = 0;
@@ -177,14 +190,14 @@ const normals = (y0, y1, [d0, d1], label) => {
     tx: stats(sel.map((x) => x.tx)), tn: stats(sel.map((x) => x.tn)),
     pRain1: round(sel.filter((x) => x.rr >= 1).length / n, 3), pRain10: round(sel.filter((x) => x.rr >= 10).length / n, 3),
     ffm: round(mean(sel.map((x) => x.ffm)), 0), fxi: round(mean(sel.map((x) => x.fxi)), 0), pGust58: round(sel.filter((x) => x.fxi >= 58).length / n, 3),
-    rrMonth: round((sel.reduce((s, x) => s + x.rr, 0) / (y1 - y0 + 1)) * (31 / (d1 - d0 + 1)), 1),
+    rrMonth: round((sel.reduce((s, x) => s + x.rr, 0) / (y1 - y0 + 1)) * (DAYS_IN_MONTH / (d1 - d0 + 1)), 1),
   };
 };
 const rec = (key, better, scale = 1) => {
   const sel = days.filter((x) => x.d >= STRIP[0] && x.d <= STRIP[1]);
   let best = sel[0];
   for (const x of sel) if (better(x[key], best[key])) best = x;
-  return { value: round(best[key] * scale, 1), date: `${pad(best.d)}/10/${best.y}` };
+  return { value: round(best[key] * scale, 1), date: `${pad(best.d)}/${pad(MONTH)}/${best.y}` };
 };
 const occ = days.filter((x) => x.d >= WINDOW[0] && x.d <= WINDOW[1]);
 const capped = inWin.filter((x) => (x.e.hours ?? []).filter((h) => h?.lim === 'nuages' && h.m < 0).length >= 2).length / inWin.length;
@@ -193,8 +206,8 @@ const capped = inWin.filter((x) => (x.e.hours ?? []).filter((h) => h?.lim === 'n
 const z500 = [];
 const t850 = [];
 for (let y = 2021; y <= 2025; y++) {
-  const url = `https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=${P.lat}&longitude=${P.lon}&start_date=${y}-10-01&end_date=${y}-10-25&hourly=geopotential_height_500hPa,temperature_850hPa&models=gfs_global&timezone=Europe%2FParis`;
-  const H = (await openMeteo(url, `gfs_upper_${y}.json`)).hourly;
+  const url = `https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=${P.lat}&longitude=${P.lon}&start_date=${y}-11-15&end_date=${y}-12-05&hourly=geopotential_height_500hPa,temperature_850hPa&models=gfs_global&timezone=Europe%2FParis`;
+  const H = (await openMeteo(url, `gfs_upper_${y}_nov.json`)).hourly;
   H.time.forEach((t, i) => {
     if (+t.slice(11, 13) !== 12) return;
     if (H.geopotential_height_500hPa[i] != null) z500.push(H.geopotential_height_500hPa[i]);
@@ -217,17 +230,17 @@ const out = {
     alpha: CALIB.alpha, beta: CALIB.beta, n: null, period: 'empruntée à la station de Millau (octobre 1993-2025)', borrowed: true,
     brier: null, brierClim: null, bss: null, agreement: null, pStationGivenModelFly: null, pStationGivenModelNoFly: null, reliability: [],
   },
-  windScale: { note: 'Rapports de quantiles 0,75-0,95 contre AROME HD, heures de 9 h à 17 h, 1er oct.-5 nov. 2023-2025', wind: bias.coarse, gust: bias.coarse, corrWind: null },
+  windScale: { note: 'Rapports de quantiles 0,75-0,95 contre AROME HD, heures de 9 h à 17 h, 1er nov.-5 déc. 2023-2025', wind: bias.coarse, gust: bias.coarse, corrWind: null },
   gustFromWind,
   mornings: {
     period: `${YEARS[0]}-${YEARS[1]}`,
-    window: `${WINDOW[0]}-${WINDOW[1]} oct.`,
+    window: `${WINDOW[0]}-${WINDOW[1]} ${STAGE.monthName}`,
     n: inWin.length,
     pMorning: round(pDay, 4),
     limiting: Object.fromEntries(Object.entries(limCount).map(([k, v]) => [k, round(v / inWin.length, 3)])),
     windowsN: windows.length,
-    dist4: [round(1 - pDay, 4), round(pDay, 4)],
-    pAtLeast: [round(pDay, 4)],
+    dist4: dist.map((x) => round(x, 4)), // loi du nombre de jours volables sur les ND jours (nom hérité)
+    pAtLeast: pAtLeast.map((x) => round(x, 4)),
     pFlyAfterFly: round(pFF, 3),
     pFlyAfterNoFly: round(pNF, 3),
     windows,
@@ -239,9 +252,9 @@ const out = {
     sectors: SECTORS8.map((s) => ({ sector: s, freq: round(rose[s].n / roseTot, 3), ws: round(rose[s].n ? rose[s].ws / rose[s].n : null, 1), fly: round(rose[s].n ? rose[s].fly / rose[s].n : null, 2) })),
   },
   normals: {
-    october: normals(1993, 2020, [1, 31], 'octobre'),
-    window: normals(1993, 2020, STRIP, `${STRIP[0]}-${STRIP[1]} oct.`),
-    windowRecent: normals(1996, 2025, STRIP, `${STRIP[0]}-${STRIP[1]} oct.`),
+    month: normals(1993, 2020, [1, DAYS_IN_MONTH], STAGE.monthName),
+    window: normals(1993, 2020, STRIP, `${STRIP[0]}-${STRIP[1]} ${STAGE.monthName}`),
+    windowRecent: normals(1996, 2025, STRIP, `${STRIP[0]}-${STRIP[1]} ${STAGE.monthName}`),
     records: {
       since: YEARS[0],
       txMax: rec('tx', (a, b) => a > b),
@@ -251,7 +264,7 @@ const out = {
     },
   },
   occurrences: {
-    period: `${YEARS[0]}-${YEARS[1]} (ERA5)`, window: `${WINDOW[0]}-${WINDOW[1]} oct.`, n: occ.length,
+    period: `${YEARS[0]}-${YEARS[1]} (ERA5)`, window: `${WINDOW[0]}-${WINDOW[1]} ${STAGE.monthName}`, n: occ.length,
     fog: null, thunder: null, // les codes météo d'ERA5 ne signalent ni brouillard ni orage de façon fiable
     mist: null, capped: round(capped, 3),
   },
@@ -260,14 +273,16 @@ const out = {
     id: null, years: null, n: null,
     dTx: round(0.0065 * dz, 1), dTn: round(0.0065 * dz * 0.5, 1), pInversion: null,
   },
-  era5: { mslp: stats(occ.map((x) => x.mslp)), period: `${YEARS[0]}-${YEARS[1]}`, window: `${WINDOW[0]}-${WINDOW[1]} oct.` },
-  upper: { z500: stats(z500, 0), t850: stats(t850, 1), ref: 'analyses GFS de 12 h locale, 1er-25 octobre 2021-2025 (référence courte)' },
+  era5: { mslp: stats(occ.map((x) => x.mslp)), period: `${YEARS[0]}-${YEARS[1]}`, window: `${WINDOW[0]}-${WINDOW[1]} ${STAGE.monthName}` },
+  upper: { z500: stats(z500, 0), t850: stats(t850, 1), ref: 'analyses GFS de 12 h locale, 15 novembre-5 décembre 2021-2025 (référence courte)' },
   aigoual: { period: '', p50: null, p100: null, mean: null },
 };
 fs.mkdirSync('data', { recursive: true });
 fs.writeFileSync('data/climatology.json', JSON.stringify(out));
 console.log('data/climatology.json écrit :', {
   pJour: out.mornings.pMorning,
+  nbJours: out.mornings.dist4,
+  auMoinsUn: out.mornings.pAtLeast,
   limitant: out.mornings.limiting,
   persistance: [out.mornings.pFlyAfterFly, out.mornings.pFlyAfterNoFly],
   normales: out.normals.window.tx,

@@ -114,7 +114,7 @@ const DATES = STAGE.dates;
 function hourlyFor(members, value) {
   // value(memberIndex, dateIndex, hour) → { t, rh, rr, ... } ; construit un objet `hourly` façon Open-Meteo.
   const time = [];
-  const days = ['2026-10-11', ...DATES, '2026-10-16'];
+  const days = [STAGE.fetchStart, ...DATES, STAGE.fetchEnd];
   for (const d of days) for (let h = 0; h < 24; h++) time.push(`${d}T${String(h).padStart(2, '0')}:00`);
   const hourly = { time };
   const names = { t: 'temperature_2m', rh: 'relative_humidity_2m', rr: 'precipitation', cc: 'cloud_cover', ws: 'wind_speed_10m', wd: 'wind_direction_10m', wg: 'wind_gusts_10m', p: 'pressure_msl' };
@@ -142,7 +142,7 @@ test('lecture des membres d’une réponse Ensemble', () => {
 function fakeSystem(id, value, members = 10) {
   const sys = ENSEMBLES.find((s) => s.id === id);
   const parsed = parseMembers(hourlyFor(members, value), ['t', 'rh', 'rr', 'cc', 'ws', 'wd', 'wg', 'p']);
-  return summarizeEnsemble(sys, parsed, null, { calib, elevation: 828, run: { init: '2026-10-11T00:00:00Z' } });
+  return summarizeEnsemble(sys, parsed, null, { calib, elevation: 828, run: { init: '2026-11-26T00:00:00Z' } });
 }
 
 test('un ensemble sec et calme donne des matinées volables, un ensemble pluvieux non', () => {
@@ -156,22 +156,22 @@ test('un ensemble sec et calme donne des matinées volables, un ensemble pluvieu
   assert.equal(g.memberDays[0][0][1], REGIME_CODES.indexOf('anticyclone'));
 });
 
-const clim = { pMorning: 0.6, windows: [[1], [0], [1], [1], [0]] };
+const clim = { pMorning: 0.6, windows: [[1, 1, 0], [0, 1, 1], [1, 1, 1], [0, 0, 0], [1, 0, 1]] };
 
 test('sans prévision, la combinaison rend la climatologie', () => {
   const out = combine([], clim, { now: Date.parse('2026-09-27T00:00:00Z'), samples: 20000 });
-  assert.ok(Math.abs(out.p - 0.6) < 0.02); // 3 fenêtres sur 5 sont volables
+  assert.ok(Math.abs(out.p - 0.8) < 0.02); // 4 fenêtres sur 5 ont au moins une journée volable
   assert.ok(out.days.every((d) => d.a === 0 && d.p === 0.6));
 });
 
 test('à courte échéance, la combinaison suit les modèles ; résultat reproductible', () => {
-  const now = Date.parse('2026-10-17T12:00:00Z');
+  const now = Date.parse('2026-11-26T12:00:00Z');
   const sysGood = fakeSystem('ecmwf_ens', good);
   const sysBad = fakeSystem('ecmwf_ens', rainy);
   const g = combine([sysGood], clim, { now });
   const b = combine([sysBad], clim, { now });
   assert.ok(g.p > 0.7, `p=${g.p}`);
-  assert.ok(b.p < 0.25, `p=${b.p}`); // la climatologie pèse encore un quart à 7 jours
+  assert.ok(b.p < 0.45, `p=${b.p}`); // la climatologie pèse encore un quart à 7 jours
   assert.ok(g.score > b.score);
   assert.deepEqual(combine([sysGood], clim, { now }), g);
 });
@@ -194,30 +194,31 @@ test('trajectoires : deux familles bien séparées sont retrouvées', () => {
 
 test('le rapport complet se construit et reste borné', () => {
   const climFull = {
-    mornings: { pMorning: 0.4, windows: clim.windows, pAtLeast: [0.4], dist4: [0.6, 0.4], period: '1993-2025', window: '11-25 oct.', limiting: {}, pFlyAfterFly: 0.56, pFlyAfterNoFly: 0.27 },
+    mornings: { pMorning: 0.4, windows: clim.windows, pAtLeast: [0.8, 0.4, 0.2], dist4: [0.2, 0.4, 0.2, 0.2], period: '1993-2025', window: '20-30 novembre', limiting: {}, pFlyAfterFly: 0.56, pFlyAfterNoFly: 0.27 },
     station: { alt: 1417 }, strip: [], windRose: { calm: 0.4, sectors: [] },
     normals: { window: { tx: { mean: 11 }, tn: { mean: 5 } } },
-    occurrences: { fog: null, window: '11-25 oct.', period: '1993-2025' },
+    occurrences: { fog: null, window: '20-30 novembre', period: '1993-2025' },
     valley: { dTx: 3.4, dTn: 1.7 }, era5: { mslp: { mean: 1017.6, sd: 6.2 }, period: '1993-2025' },
     upper: { z500: { mean: 5751, sd: 90 }, t850: { mean: 9.9, sd: 3.8 } }, aigoual: { p50: null },
     calibration: calib, gustFromWind: GUST_FROM_WIND, windScale: {},
   };
-  const NOW = Date.parse('2026-10-16T00:00:00Z');
+  const NOW = Date.parse('2026-11-26T00:00:00Z');
   const r = buildReport({ ens: [fakeSystem('ecmwf_ens', good), fakeSystem('gefs', rainy)], det: [], clim: climFull, now: NOW });
   assert.ok(r.score >= -180 && r.score <= 180);
-  assert.equal(r.days.length, 1);
+  assert.equal(r.days.length, 3);
   assert.ok(r.analysis.summary.length >= 2);
   assert.ok(r.days[0].stats.tMax.length === 3);
   assert.equal(r.days[0].anom.normTx, 11); // normales ERA5 au point du décollage : pas de correction d'altitude
   assert.equal(r.paraglidable, null);
-  assert.equal(r.pAll, r.p);
-  assert.equal(r.climatology.scoreClim, Math.round(360 * 0.4 - 180));
+  assert.equal(r.pAll, r.dist.at(-1));
+  assert.ok(r.pAll <= r.p);
+  assert.equal(r.climatology.scoreClim, Math.round(360 * 0.8 - 180));
   assert.ok(/Puy de Dôme/.test(r.analysis.summary[0]));
   assert.ok(r.days[0].stats.window.ws.length === 3);
 
   // Avec Paraglidable : il entre dans le mélange sans diluer régimes ni critères limitants.
   const D = STAGE.dates[0];
-  const pg = { fetchedAt: '2026-10-16T00:00:00Z', changedAt: '2026-10-16T00:00:00Z', spot: { name: 'Puy' }, days: { [D]: { fly: 0.95, XC: 0.1 } }, history: [{ t: '2026-10-16T00:00:00Z', v: { [D]: 0.95 } }] };
+  const pg = { fetchedAt: '2026-11-26T00:00:00Z', changedAt: '2026-11-26T00:00:00Z', spot: { name: 'Puy' }, days: { [D]: { fly: 0.95, XC: 0.1 } }, history: [{ t: '2026-11-26T00:00:00Z', v: { [D]: 0.95 } }] };
   const r2 = buildReport({ ens: [fakeSystem('ecmwf_ens', good), fakeSystem('gefs', rainy)], det: [], clim: climFull, now: NOW, paraglidable: pg });
   assert.ok(r2.days[0].contrib.some((c) => c.id === 'paraglidable'));
   assert.ok(r2.days[0].pModel > r.days[0].pModel);
@@ -233,14 +234,14 @@ test('Paraglidable : lecture de l’API, rapprochement de la normale, historique
   const millau = { lat: 44.097, lon: 3.075, name: 'Millau' };
   const D = STAGE.dates[0];
   const api = {
-    '2026-10-17': [{ ...millau, forecast: { fly: 0.2 } }, { ...puy, forecast: { fly: 0.0667, XC: 0 } }],
+    '2026-11-26': [{ ...millau, forecast: { fly: 0.2 } }, { ...puy, forecast: { fly: 0.0667, XC: 0 } }],
     [D]: [{ ...millau, forecast: { fly: 0.7 } }, { ...puy, forecast: { fly: 0.9059, XC: 0.1059 } }],
     junk: 3,
   };
   const { spot, days } = parseApi(api, { lat: 45.7728, lon: 2.9625 });
   assert.equal(spot.name, 'Puy de Dome'); // la clé peut porter plusieurs points : on garde celui du décollage
-  assert.deepEqual(Object.keys(days), ['2026-10-17', D]);
-  assert.deepEqual(parseApi({ '2026-10-18': [{ ...millau, forecast: { fly: 0.7 } }] }, { lat: 45.7728, lon: 2.9625 }).days, {});
+  assert.deepEqual(Object.keys(days), ['2026-11-26', D]);
+  assert.deepEqual(parseApi({ [D]: [{ ...millau, forecast: { fly: 0.7 } }] }, { lat: 45.7728, lon: 2.9625 }).days, {});
   // Monotone, rapproché de la normale, normale inchangée.
   assert.ok(Math.abs(calibrateFly(0.6, 0.6) - 0.6) < 1e-9);
   const hi = calibrateFly(0.95, 0.6);
@@ -248,19 +249,19 @@ test('Paraglidable : lecture de l’API, rapprochement de la normale, historique
   assert.ok(hi > 0.6 && hi < 0.95 && lo < 0.6 && lo > 0.05, `${hi} ${lo}`);
   assert.ok(calibrateFly(0.9, 0.6) > calibrateFly(0.8, 0.6));
   const sys = summarizeParaglidable({ days }, 0.4);
-  assert.deepEqual(sys.cover, [true]);
+  assert.deepEqual(sys.cover, [true, false, false]);
   assert.equal(summarizeParaglidable({ days: { '2026-10-01': { fly: 0.5 } } }, 0.4), null);
-  assert.equal(firstAvailable('2026-10-18'), '2026-10-09');
+  assert.equal(firstAvailable('2026-11-29'), '2026-11-20');
   // L'historique ne s'allonge que si le jour suivi change.
-  const m1 = mergeParaglidable(null, { spot, days }, STAGE.dates, Date.parse('2026-10-16T10:00:00Z'));
+  const m1 = mergeParaglidable(null, { spot, days }, STAGE.dates, Date.parse('2026-11-26T10:00:00Z'));
   assert.ok(m1.changed);
   assert.equal(m1.data.history.length, 1);
-  const days2 = { ...days, '2026-10-17': { fly: 0.5, XC: 0 } };
-  const m2 = mergeParaglidable(m1.data, { spot, days: days2 }, STAGE.dates, Date.parse('2026-10-16T11:00:00Z'));
+  const days2 = { ...days, '2026-11-26': { fly: 0.5, XC: 0 } };
+  const m2 = mergeParaglidable(m1.data, { spot, days: days2 }, STAGE.dates, Date.parse('2026-11-26T11:00:00Z'));
   assert.ok(!m2.changed);
   assert.equal(m2.data.history.length, 1);
   assert.equal(m2.data.changedAt, m1.data.changedAt);
-  const m3 = mergeParaglidable(m2.data, { spot, days: { ...days2, [D]: { fly: 0.4, XC: 0 } } }, STAGE.dates, Date.parse('2026-10-16T12:00:00Z'));
+  const m3 = mergeParaglidable(m2.data, { spot, days: { ...days2, [D]: { fly: 0.4, XC: 0 } } }, STAGE.dates, Date.parse('2026-11-26T12:00:00Z'));
   assert.ok(m3.changed);
   assert.equal(m3.data.history.length, 2);
 });
@@ -274,6 +275,6 @@ test('bilan de la sortie : réussie, ratée ou à confirmer', () => {
   assert.equal(stageOutcome([false, true, false, true], 3).kind, 'rate');
   assert.equal(stageOutcome([true, null, null, null], 3).kind, 'attente');
   assert.deepEqual(stageOutcome([true, false, null, true], 3), { kind: 'attente', flown: 2, missed: 1, unknown: 1, need: 3 });
-  assert.ok(!stageOver(Date.parse('2026-10-18T15:59:00Z')));
-  assert.ok(stageOver(Date.parse('2026-10-18T16:01:00Z')));
+  assert.ok(!stageOver(Date.parse('2026-11-29T14:59:00Z')));
+  assert.ok(stageOver(Date.parse('2026-11-29T15:01:00Z')));
 });

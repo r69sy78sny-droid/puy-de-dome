@@ -4,8 +4,8 @@
 
 import { LIMITS, BIAS } from './config.js';
 
-/** Rafale estimée quand un modèle n'en fournit pas (régression rafale/vent d'AROME HD au sommet, octobre-novembre 2023-2025). */
-export const GUST_FROM_WIND = { a: 1.62, b: 2.51 };
+/** Rafale estimée quand un modèle n'en fournit pas (régression rafale/vent d'AROME HD au sommet, novembre-décembre 2023-2025). */
+export const GUST_FROM_WIND = { a: 2.79, b: 2.4 };
 
 export const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 export const angDist = (a, b) => Math.abs(((a - b + 540) % 360) - 180);

@@ -263,7 +263,7 @@ export function windRose(container, sectors, calm) {
   container.replaceChildren();
   const size = Math.min(320, Math.max(220, container.clientWidth || 280));
   const c = size / 2;
-  const svg = el('svg', { viewBox: `0 0 ${size} ${size}`, width: size, height: size, role: 'img', 'aria-label': 'Rose des vents de la fenêtre de vol en octobre au Puy de Dôme' }, container);
+  const svg = el('svg', { viewBox: `0 0 ${size} ${size}`, width: size, height: size, role: 'img', 'aria-label': 'Rose des vents de la fenêtre de vol en novembre au Puy de Dôme' }, container);
   const max = Math.max(...sectors.map((s) => s.freq), 0.05);
   const R = c - 30;
   const R0 = 26; // cercle central : part de vent calme

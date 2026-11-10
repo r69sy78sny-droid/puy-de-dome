@@ -5,25 +5,32 @@
 export const ENGINE_VERSION = 1;
 
 /**
- * L'événement suivi : un vol du dimanche 18 octobre 2026 au Puy de Dôme pour un pilote titulaire du brevet
- * initial (FFVL, niveau vert). Une seule journée ; le nom STAGE est gardé pour tout le moteur.
+ * L'événement suivi : un vol au Puy de Dôme du vendredi 27 au dimanche 29 novembre 2026 pour un pilote titulaire du
+ * brevet initial (FFVL, niveau vert). Le nom STAGE est gardé pour tout le moteur ; pour changer de dates ou de site,
+ * modifier ce bloc, POINTS, SITES et LIMITS, puis relancer node scripts/build-climatology.mjs.
  */
 export const STAGE = {
   title: 'Brevet initial · Puy de Dôme',
   kind: 'vol',
-  dates: ['2026-10-18'],
-  dayLabel: 'dimanche 18 octobre',
-  sessionsNeeded: 1, // un seul jour : il suffit qu'il soit volable
+  dates: ['2026-11-27', '2026-11-28', '2026-11-29'],
+  dayLabel: 'du vendredi 27 au dimanche 29 novembre',
+  goalLabel: 'au moins un jour',
+  sessionsNeeded: 1, // il suffit d'une journée volable sur les trois
+  month: 11,
+  monthName: 'novembre',
+  climWindow: [20, 30], // jours du mois retenus pour la climatologie (autour des dates suivies)
+  stripRange: [25, 30], // colonnes de la frise « mêmes jours, années précédentes »
   tz: 'Europe/Paris',
+  utcOffset: 1, // heure d'hiver : heure locale = UTC + 1
   // Créneaux d'une heure notés par leur heure de fin (convention Open-Meteo : cumul sur l'heure écoulée).
-  // 11 … 18 = 10 h-11 h … 17 h-18 h, heure locale : la fenêtre de vol d'une journée d'octobre.
-  morningSlots: [11, 12, 13, 14, 15, 16, 17, 18],
-  windowHours: [10, 18],
+  // 11 … 16 = 10 h-11 h … 15 h-16 h, heure locale : la fenêtre de vol d'une journée de novembre (nuit vers 17 h).
+  morningSlots: [11, 12, 13, 14, 15, 16],
+  windowHours: [10, 16],
   minConsecutiveSlots: 2, // il faut 2 h volables d'affilée (montée en train, préparation, vol, retour)
-  targetUtcHour: 10, // 12 h locale (UTC+2) : milieu de la fenêtre, sert à calculer l'échéance
-  endUtcHour: 16, // 18 h locale : fin de la fenêtre de vol
-  fetchStart: '2026-10-17', // la veille, pour les cumuls et le brouillard du matin
-  fetchEnd: '2026-10-19', // jusqu'au lendemain 0 h pour le cumul de la journée
+  targetUtcHour: 11, // 12 h locale : milieu de la fenêtre, sert à calculer l'échéance
+  endUtcHour: 15, // 16 h locale : fin de la fenêtre de vol
+  fetchStart: '2026-11-26', // la veille, pour les cumuls et le brouillard du matin
+  fetchEnd: '2026-11-30', // jusqu'au lendemain 0 h pour le cumul du dernier jour
 };
 
 export const POINTS = {
@@ -56,12 +63,12 @@ export const LIMITS = {
 
 /**
  * Facteurs pour passer du vent d'un modèle à ce que voit AROME HD (1,3 km, qui résout le cône du Puy) au sommet :
- * rapport des quantiles 0,75-0,95 des heures de 9 h à 17 h, 1er octobre-5 novembre 2023-2025, au point du déco.
+ * rapport des quantiles 0,75-0,95 des heures de 9 h à 17 h, 1er novembre-5 décembre 2023-2025, au point du déco.
  * ERA5 (≈ 30 km) sert de modèle grossier, ICON-EU (7 km) de modèle moyen. Les modèles fins sont déjà à l'échelle.
  */
 export const BIAS = {
-  coarse: { wind: 1.05, gust: 1.13 }, // ≥ 20 km
-  medium: { wind: 1.0, gust: 0.87 }, // 7-13 km
+  coarse: { wind: 1.05, gust: 1.11 }, // ≥ 20 km
+  medium: { wind: 1.0, gust: 0.85 }, // 7-13 km
   fine: { wind: 1.0, gust: 1.0 }, // ≤ 2,5 km
 };
 
@@ -69,7 +76,7 @@ export const BIAS = {
 export const LEAD = { l50: 10, scale: 2.5 };
 
 /** Alertes GitHub : commentaire sur l'issue quand l'aiguille a bougé d'au moins ce nombre de points. */
-export const ALERT = { threshold: 30, issueTitle: "🎯 Alertes de l'aiguille (Puy de Dôme, dimanche 18 oct.)" };
+export const ALERT = { threshold: 30, issueTitle: "🎯 Alertes de l'aiguille (Puy de Dôme, 27-29 nov.)" };
 
 const V = {
   t: 'temperature_2m',

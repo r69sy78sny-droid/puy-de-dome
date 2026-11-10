@@ -3,7 +3,7 @@
 
 import { STAGE } from './config.js';
 
-/** Fin de la fenêtre de vol du dernier jour (18 h à Paris, 16 h UTC en octobre). */
+/** Fin de la fenêtre de vol du dernier jour (16 h à Paris, 15 h UTC en hiver). */
 export const stageEndsAt = (dates = STAGE.dates) => Date.parse(`${dates.at(-1)}T${String(STAGE.endUtcHour).padStart(2, '0')}:00:00Z`);
 export const stageOver = (now = Date.now(), dates = STAGE.dates) => now > stageEndsAt(dates);
 

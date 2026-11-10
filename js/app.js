@@ -5,7 +5,7 @@ import { createGauge } from './gauge.js';
 import { renderFinale, confetti } from './finale.js';
 import { stageOver, stageOutcome } from '../engine/finale.js';
 import { h, heat, fmtPct, fmtScore, historyChart, hourFlyChart, regimeBars, windRose } from './charts.js';
-import { REGIMES, LIMITS, SITES, ENSEMBLES, DETERMINISTIC, EXPERTS, LEAD, BIAS } from '../engine/config.js';
+import { STAGE, REGIMES, LIMITS, SITES, ENSEMBLES, DETERMINISTIC, EXPERTS, LEAD, BIAS } from '../engine/config.js';
 
 const POLL_MS = 5 * 60 * 1000;
 const store = {
@@ -50,7 +50,8 @@ const CONF_LABEL = { faible: 'Fiabilité faible', moyenne: 'Fiabilité moyenne',
 const $ = (id) => document.getElementById(id);
 const fr = (x, d = 0) => (x == null || Number.isNaN(x) ? '—' : x.toFixed(d).replace('.', ',').replace('-', '−'));
 const fmtWhen = (iso, opts = {}) => (iso ? new Date(iso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', ...opts }) : '—');
-const shortDay = (label) => label.replace(' octobre', '');
+const shortDay = (label) => label.replace(/ (octobre|novembre)$/, '');
+const WH = `${STAGE.windowHours[0]}-${STAGE.windowHours[1]} h`;
 const q = (arr, d = 0, unit = '') => (arr ? `${fr(arr[1], d)}${unit}` : '—');
 const qr = (arr, d = 0, unit = '') => (arr ? `${fr(arr[1], d)}${unit} (${fr(arr[0], d)} à ${fr(arr[2], d)})` : '—');
 const fmtDay = (date, opts = { weekday: 'short', day: 'numeric', month: 'short' }) => new Date(`${date}T12:00:00Z`).toLocaleDateString('fr-FR', { timeZone: 'UTC', ...opts });
@@ -97,9 +98,9 @@ async function refresh(initial = false) {
 
 // ---------------------------------------------------------------- fin de la journée
 // ?finale=succes | rate | attente force la carte de fin (aperçu) ; sans paramètre, elle apparaît toute seule
-// à 18 h le dimanche 18, quand la fenêtre de vol est passée.
+// à 16 h le dimanche 29, quand la fenêtre de vol est passée.
 const FORCED = new URLSearchParams(location.search).get('finale');
-const FORCED_OBSERVED = { succes: [true], rate: [false], attente: [null] };
+const FORCED_OBSERVED = { succes: [false, true, false], rate: [false, false, false], attente: [null, null, null] };
 const isOver = () => FORCED in FORCED_OBSERVED || (report ? stageOver(Date.now(), report.stage.dates) : false);
 const ISSUES_URL = `${REPO_URL}/issues`;
 let finalePlayed = false;
@@ -155,9 +156,9 @@ function renderHero(previous, initial) {
   gauge.setLabel(`Aiguille à ${fmtScore(r.score)} sur une échelle de −180 (impossible) à +180 (tu pourras voler) : ${r.verdict.label}.`);
   $('score').textContent = fmtScore(r.score);
   $('verdict').textContent = r.verdict.label;
-  $('proba').replaceChildren('Probabilité de pouvoir voler ', h('b', {}, r.stage.dayLabel), ' : ', h('b', {}, fmtPct(r.p)));
-  $('proba2').replaceChildren(`Il faut au moins 2 h volables d'affilée entre ${r.stage.windowHours[0]} h et ${r.stage.windowHours[1]} h.`);
-  $('clim').textContent = `Normale à cette date (${r.climatology.period}) : ${fmtPct(r.climatology.pAtLeast[0])}, soit ${fmtScore(r.climatology.scoreClim)} sur l'aiguille.`;
+  $('proba').replaceChildren('Probabilité de pouvoir voler ', h('b', {}, r.stage.goalLabel), ` ${r.stage.dayLabel} : `, h('b', {}, fmtPct(r.p)));
+  $('proba2').replaceChildren(`Les ${r.days.length} journées volent : `, h('b', {}, fmtPct(r.pAll)), ` · ${fr(r.expected, 1)} journée(s) volable(s) attendue(s) sur ${r.days.length}. Journée volable = 2 h d'affilée entre ${r.stage.windowHours[0]} h et ${r.stage.windowHours[1]} h.`);
+  $('clim').textContent = `Normale à cette date (${r.climatology.period}) : ${fmtPct(r.climatology.pAtLeast[r.stage.sessionsNeeded - 1])}, soit ${fmtScore(r.climatology.scoreClim)} sur l'aiguille.`;
   $('summary').textContent = r.analysis.summary.slice(1).join(' ');
   const ageH = (Date.now() - Date.parse(r.generatedAt)) / 3600e3;
   const over = isOver();
@@ -248,8 +249,8 @@ function renderDays() {
         h('i', { style: `width:${Math.round(d.p * 100)}%` }),
         h('b', { style: `left:calc(${Math.round(d.pClim * 100)}% - 1px)` })),
       h('dl', { class: 'kv' },
-        h('dt', {}, 'Vent 10-18 h'), h('dd', {}, s.window?.ws ? `${fr(s.window.ws[1])} km/h, raf. ${fr(s.window.wg[1])}` : '—'),
-        h('dt', {}, 'Pluie 10-18 h'), h('dd', {}, fmtPct(s.pRainMorning)),
+        h('dt', {}, 'Vent ' + WH), h('dd', {}, s.window?.ws ? `${fr(s.window.ws[1])} km/h, raf. ${fr(s.window.wg[1])}` : '—'),
+        h('dt', {}, 'Pluie ' + WH), h('dd', {}, fmtPct(s.pRainMorning)),
         h('dt', {}, 'Décollage'), h('dd', {}, s.tMin ? `${fr(s.tMin[1])} → ${fr(s.tMax[1])} °C` : '—'),
         h('dt', {}, 'Risque n°1'), h('dd', {}, risk ? `${risk.label} ${fmtPct(risk.p)}` : '—'),
         ...(report.paraglidable ? [h('dt', { title: 'Réseau de neurones entraîné sur les vols réels : chance que des pilotes volent au Puy de Dôme ce jour-là' }, 'IA Paraglidable'),
@@ -264,6 +265,7 @@ function renderDays() {
 function selectDay(i) {
   selectedDay = i;
   renderDays();
+  renderDist();
   renderDayDetail();
   activateTab('t-jour');
   $('p-jour').scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
@@ -289,7 +291,7 @@ function renderHistory() {
   const r = report;
   historyChart($('history'), history, { climScore: r.climatology.scoreClim, stageStart: `${r.stage.dates[0]}T${String(r.stage.windowHours[0] - 2).padStart(2, '0')}:00:00Z`, stageEnd: `${r.stage.dates.at(-1)}T${String(r.stage.endUtcHour).padStart(2, '0')}:00:00Z` });
   const rows = [...history].reverse().map((e) => [fmtWhen(e.t), fmtScore(e.score), fmtPct(e.p), e.pDays.map((p) => fmtPct(p)).join(' · '), (e.trigger ?? []).join(', ')]);
-  $('history-table').replaceChildren(table(['Date', 'Aiguille', 'Proba', 'Dimanche 18', 'Déclencheur'], rows, [false, true, true, false, false]));
+  $('history-table').replaceChildren(table(['Date', 'Aiguille', 'Proba', r.days.map((d) => shortDay(d.label).split(' ').at(-1)).join(' · '), 'Déclencheur'], rows, [false, true, true, false, false]));
 }
 
 function table(headers, rows, numeric = []) {
@@ -373,7 +375,7 @@ function detTable(d) {
   const rows = d.det.filter((m) => m.cover || m.tMax != null);
   if (!rows.length) return h('p', { class: 'muted' }, 'Aucun modèle déterministe n’atteint encore cette journée (AROME : 42 h, ICON-D2 : 48 h, ARPEGE : 4 j, ICON-EU : 5 j, ECMWF et GFS : 15-16 j).');
   return h('div', { class: 'scroll-x' }, table(
-    ['Modèle', 'Run', 'Journée volable', 'T mini / maxi', 'Vent 10-18 h', 'Rafales', 'Pluie fenêtre / jour', 'Nuages bas', 'Base', 'Sommet couche humide', 'Couche limite 14 h', 'Pression', 'Z500', 'T850', 'Vent 850', 'Gradient 9 h', 'Brouillard au pied', 'Cause'],
+    ['Modèle', 'Run', 'Journée volable', 'T mini / maxi', 'Vent ' + WH, 'Rafales', 'Pluie fenêtre / jour', 'Nuages bas', 'Base', 'Sommet couche humide', 'Couche limite 14 h', 'Pression', 'Z500', 'T850', 'Vent 850', 'Gradient 9 h', 'Brouillard au pied', 'Cause'],
     rows.map((m) => [
       `${m.label} (${m.res})`,
       m.run ? fmtWhen(m.run, { weekday: undefined, hour: '2-digit' }) : '—',
@@ -426,8 +428,8 @@ function renderDayDetail() {
         ['Sous voile à 35 km/h', q(s.chill10, 1, ' °C')],
       ], `Vallée : ${d.valley.source}.`),
       statCard('Nuages et brouillard', [
-        ['Nébulosité 10-18 h', q(s.ccMorning, 0, ' %')],
-        ['Nuages bas 10-18 h', q(s.cclMorning, 0, ' %')],
+        ['Nébulosité ' + WH, q(s.ccMorning, 0, ' %')],
+        ['Nuages bas ' + WH, q(s.cclMorning, 0, ' %')],
         ['Base des nuages à 10 h', s.base10 ? `${qr(s.base10, 0, ' m')}` : '—'],
         ['Brouillard dans la plaine', fmtPct(s.fog)],
         ['Sommet dans le nuage (normale)', fmtPct(c.occurrences.capped)],
@@ -439,7 +441,7 @@ function renderDayDetail() {
         ['Part convective', s.shShare == null ? '—' : fmtPct(s.shShare)],
         ['CAPE max (médiane / P90)', s.capeMax ? `${fr(s.capeMax[1])} / ${fr(s.capeMax[2])} J/kg` : '—'],
         ['Normale : jours ≥ 1 mm', fmtPct(n.pRain1)],
-      ], 'Octobre : retour de pluie atlantique ou épisode méditerranéen en flux de sud-est.'),
+      ], 'Novembre : passages pluvieux atlantiques ; en altitude, la précipitation peut être neigeuse (voir la température au sommet).'),
     ),
     h('div', { class: 'grid-2', style: 'margin-top:12px' },
       h('div', { class: 'card' },
@@ -471,10 +473,11 @@ const STATIC_AEROLOGY = [
   ['Relief', "Le Puy de Dôme est un cône volcanique de 1 465 m, le plus haut de la chaîne des Puys, à l'ouest de la plaine de la Limagne (330 m à Clermont-Ferrand). Le décollage, au sommet vers 1 420 m, domine la plaine de plus de 1 000 m ; l'atterrissage, au pied du cône (vers 900 m), laisse environ 500 m de dénivelé."],
   ['Huit aires de décollage', "Le sommet compte huit aires, une par orientation : on décolle face au vent quelle que soit sa direction, ce qui est rare. Seule la force du vent (et les nuages) décide. Le sommet est accessible par le train Panoramique des Dômes ou à pied par le sentier des Muletiers (350 m de dénivelé) : vérifie les horaires du train, c'est lui qui rythme la journée."],
   ['Un sommet exposé', "Isolé, le cône accélère le vent : celui du sommet dépasse souvent de beaucoup celui de la plaine, et les rafales y valent facilement deux fois et demie le vent moyen dans les modèles à 1,3 km. D'où des limites strictes (vent moyen 20 km/h, rafales 25 km/h) et un vent à 850 hPa, qui correspond à l'altitude du sommet, limité à 35 km/h. Sous le vent du cône, rotors et turbulence à l'atterrissage."],
-  ['Flux d\'ouest à sud-ouest (flux atlantique)', "Le régime dominant en octobre : vent établi, souvent fort au sommet, avec nuages et pluie à l'approche des perturbations. Le sommet est fréquemment coiffé d'un chapeau de nuages (nuage orographique) qui rend le décollage impossible alors qu'il fait beau en plaine."],
+  ['Flux d\'ouest à sud-ouest (flux atlantique)', "Le régime dominant en automne et en hiver : vent établi, souvent fort au sommet, avec nuages et pluie à l'approche des perturbations. Le sommet est fréquemment coiffé d'un chapeau de nuages (nuage orographique) qui rend le décollage impossible alors qu'il fait beau en plaine."],
   ['Anticyclone et mer de nuages', "Sous anticyclone, l'air froid s'accumule dans la Limagne : brouillard ou stratus qui persistent parfois jusqu'à l'après-midi. Le décollage, au-dessus de la couche, est au soleil, mais l'atterrissage au pied du cône peut rester bouché : surveille la base de la couche et sa dissipation. C'est le scénario le plus favorable pour un débutant : vent faible, air stable le matin."],
   ['Flux de nord et bise', "Flux de nord à nord-est : air sec, bonne visibilité, vent modéré à fort et parfois turbulent sur les crêtes. L'aire du nord ou de l'est est alors utilisée tant que le vent reste sous la limite."],
-  ['Flux de sud-est pluvieux', "Retour d'est ou épisode méditerranéen en octobre : nuages bas, pluie, vent de sud-est : journée perdue."],
+  ['Fin novembre', "Jours courts : lever du soleil vers 8 h, nuit vers 17 h, donc une fenêtre de vol de 10 h à 16 h. Il fait froid (autour de 0 °C au sommet, souvent moins avec le vent) : givre, brouillard givrant et neige possibles, les thermiques sont quasi absents et l'air est stable, ce qui convient à un vol tranquille mais pas à un décollage dans le nuage. Vérifie les horaires et l'ouverture du train du sommet à cette saison, et prévois l'équipement de froid."],
+  ['Flux de sud-est pluvieux', "Retour d'est ou épisode méditerranéen en automne : nuages bas, pluie, vent de sud-est : journée perdue."],
 ];
 
 function renderAnalysis() {
@@ -505,7 +508,7 @@ function coverNote(s) {
     return future(s.nextUpdate) ? `prochain run vers ${fmtWhen(s.nextUpdate, { weekday: undefined })}` : 'nouveau run attendu';
   }
   if (!s.entry) return '';
-  if (!s.cover[0] && future(s.entry.first)) return `atteindra le 18 vers le ${day(s.entry.first)}`;
+  if (!s.cover[0] && future(s.entry.first)) return `atteindra le ${STAGE.dates[0].slice(8)} vers le ${day(s.entry.first)}`;
   return 'couverture imminente';
 }
 
@@ -589,7 +592,7 @@ function paraglidableBlock() {
     title,
     intro,
     h('div', { class: 'card', style: 'padding:12px' },
-      h('div', { class: 'small muted', style: 'margin-bottom:6px' }, `Puy de Dôme, ${dates.length} prochains jours · encadré : le 18 · avis modifié ${fmtWhen(pg.changedAt)}, vérifié ${fmtWhen(pg.fetchedAt)}`),
+      h('div', { class: 'small muted', style: 'margin-bottom:6px' }, `Puy de Dôme, ${dates.length} prochains jours · encadrés : les jours suivis · avis modifié ${fmtWhen(pg.changedAt)}, vérifié ${fmtWhen(pg.fetchedAt)}`),
       h('div', { class: 'scroll-x' }, strip)),
     h('div', { class: 'scroll-x', style: 'margin-top:10px' },
       table(['Jour', 'IA, journée', 'Cross', 'IA → brevet initial', 'Modèles météo', 'Mélange final'], rows, [false, true, true, true, true, true])),
@@ -602,23 +605,24 @@ function paraglidableBlock() {
 function renderClimatology() {
   const c = report.climatology;
   const box = $('p-clim');
-  const norm = (x) => [x.days === 'octobre' ? `Octobre ${x.period}` : `${x.days} ${x.period}`, `${fr(x.tx.mean, 1)} °C (σ ${fr(x.tx.sd, 1)})`, `${fr(x.tn.mean, 1)} °C (σ ${fr(x.tn.sd, 1)})`, `${fr(x.tx.p10, 1)} / ${fr(x.tx.p90, 1)}`, fmtPct(x.pRain1), fmtPct(x.pRain10), `${fr(x.ffm)} km/h`, `${fr(x.fxi)} km/h`, fmtPct(x.pGust58)];
+  const norm = (x) => [x.days === STAGE.monthName ? `${cap(STAGE.monthName)} ${x.period}` : `${x.days} ${x.period}`, `${fr(x.tx.mean, 1)} °C (σ ${fr(x.tx.sd, 1)})`, `${fr(x.tn.mean, 1)} °C (σ ${fr(x.tn.sd, 1)})`, `${fr(x.tx.p10, 1)} / ${fr(x.tx.p90, 1)}`, fmtPct(x.pRain1), fmtPct(x.pRain10), `${fr(x.ffm)} km/h`, `${fr(x.fxi)} km/h`, fmtPct(x.pGust58)];
   const roseBox = h('div');
+  const stageDays = STAGE.dates.map((d) => +d.slice(8));
   const cols = c.stripDays.length;
-  const strip = h('div', { class: 'strip', role: 'table', 'aria-label': `Journées du ${c.stripDays[0]} au ${c.stripDays.at(-1)} octobre, ${c.period}`, style: `grid-template-columns:44px repeat(${cols}, 1fr);max-width:${44 + cols * 44}px` },
-    h('div', { class: 'y' }), ...c.stripDays.map((d) => h('div', { class: d === 18 ? '' : 'muted', style: d === 18 ? 'font-weight:700' : null }, String(d))),
+  const strip = h('div', { class: 'strip', role: 'table', 'aria-label': `Journées du ${c.stripDays[0]} au ${c.stripDays.at(-1)} ${STAGE.monthName}, ${c.period}`, style: `grid-template-columns:44px repeat(${cols}, 1fr);max-width:${44 + cols * 44}px` },
+    h('div', { class: 'y' }), ...c.stripDays.map((d) => h('div', { class: stageDays.includes(d) ? '' : 'muted', style: stageDays.includes(d) ? 'font-weight:700' : null }, String(d))),
     ...[...c.strip].reverse().flatMap((row) => [
       h('div', { class: 'y' }, String(row.year)),
       ...row.days.map((x) => (x == null ? h('div', { class: 'na' }, '?') : h('div', { class: x.ok ? 'ok' : 'ko', title: x.ok ? 'volable' : `non volable : ${LIM_LABEL[x.lim] ?? x.lim}` }, x.ok ? '✔' : LIM_SHORT[x.lim] ?? '✘'))),
     ]));
-  const col18 = c.stripDays.indexOf(18);
-  const yearsOk = c.strip.filter((r) => r.days[col18]?.ok).length;
+  const stageCols = stageDays.map((d) => c.stripDays.indexOf(d)).filter((i) => i >= 0);
+  const yearsOk = c.strip.filter((r) => stageCols.some((i) => r.days[i]?.ok)).length;
   box.replaceChildren(
     h('p', { class: 'ink2' }, `Il n'y a pas de station Météo-France au sommet du Puy de Dôme dans les données ouvertes. La référence est donc la réanalyse ERA5 au point du décollage (1 417 m), évaluée avec exactement les mêmes critères et le même moteur que les prévisions, après recalage du vent sur AROME HD. Journée volable = au moins 2 h d'affilée volables entre ${report.stage.windowHours[0]} h et ${report.stage.windowHours[1]} h. Sur ${c.period}, ${c.window} : ${fmtPct(c.pMorning)} des journées sont volables pour un pilote brevet initial. Le temps persiste : après une journée volable, la suivante l'est à ${fmtPct(c.pFlyAfterFly)}, contre ${fmtPct(c.pFlyAfterNoFly)} après une journée perdue.`),
     h('div', { class: 'grid-2', style: 'margin-top:12px' },
       h('div', { class: 'card' },
-        h('h3', {}, `Les ${c.stripDays[0]}-${c.stripDays.at(-1)} octobre de ${c.strip[0].year} à ${c.strip.at(-1).year}`),
-        h('p', { class: 'small muted' }, `Le 18 octobre aurait été volable ${yearsOk} années sur ${c.strip.length}. Case bleue = journée volable ; sinon, la cause principale.`),
+        h('h3', {}, `Les ${c.stripDays[0]}-${c.stripDays.at(-1)} ${STAGE.monthName} de ${c.strip[0].year} à ${c.strip.at(-1).year}`),
+        h('p', { class: 'small muted' }, `Au moins un des jours ${stageDays.join('-')} ${STAGE.monthName} aurait été volable ${yearsOk} années sur ${c.strip.length}. Les jours suivis sont en gras. Case bleue = journée volable ; sinon, la cause principale.`),
         strip),
       h('div', { class: 'card chart' },
         h('figure', {},
@@ -626,8 +630,8 @@ function renderClimatology() {
           roseBox,
           h('details', { class: 'table-view' }, h('summary', {}, 'Voir en tableau'), table(['Secteur', 'Fréquence', 'Vent moyen', 'Volables'], c.windRose.sectors.map((s) => [s.sector, fmtPct(s.freq), `${fr(s.ws)} km/h`, fmtPct(s.fly)]), [false, true, true, true]))))),
     h('h3', { style: 'margin:18px 0 8px' }, 'Normales au sommet (ERA5, données quotidiennes)'),
-    h('div', { class: 'scroll-x' }, table(['Période', 'T maxi', 'T mini', 'T maxi P10 / P90', 'Jours ≥ 1 mm', 'Jours ≥ 10 mm', 'Vent moyen', 'Rafale max moy.', 'Rafales ≥ 58 km/h'], [norm(c.normals.october), norm(c.normals.window), norm(c.normals.windowRecent)], [false, true, true, true, true, true, true, true, true])),
-    h('p', { class: 'small muted' }, `Octobre ${c.normals.october.period} : ${fr(c.normals.october.rrMonth, 1)} mm en moyenne. Records du ${c.stripDays[0]} au ${c.stripDays.at(-1)} octobre depuis ${c.normals.records.since} : ${fr(c.normals.records.txMax.value, 1)} °C (${c.normals.records.txMax.date}), ${fr(c.normals.records.tnMin.value, 1)} °C (${c.normals.records.tnMin.date}), ${fr(c.normals.records.rrMax.value, 1)} mm en 24 h (${c.normals.records.rrMax.date}), rafale ${fr(c.normals.records.fxiMax.value)} km/h (${c.normals.records.fxiMax.date}). Valeurs de réanalyse à 30 km de maille : les extrêmes sont sous-estimés.`),
+    h('div', { class: 'scroll-x' }, table(['Période', 'T maxi', 'T mini', 'T maxi P10 / P90', 'Jours ≥ 1 mm', 'Jours ≥ 10 mm', 'Vent moyen', 'Rafale max moy.', 'Rafales ≥ 58 km/h'], [norm(c.normals.month), norm(c.normals.window), norm(c.normals.windowRecent)], [false, true, true, true, true, true, true, true, true])),
+    h('p', { class: 'small muted' }, `${cap(STAGE.monthName)} ${c.normals.month.period} : ${fr(c.normals.month.rrMonth, 1)} mm en moyenne. Records du ${c.stripDays[0]} au ${c.stripDays.at(-1)} ${STAGE.monthName} depuis ${c.normals.records.since} : ${fr(c.normals.records.txMax.value, 1)} °C (${c.normals.records.txMax.date}), ${fr(c.normals.records.tnMin.value, 1)} °C (${c.normals.records.tnMin.date}), ${fr(c.normals.records.rrMax.value, 1)} mm en 24 h (${c.normals.records.rrMax.date}), rafale ${fr(c.normals.records.fxiMax.value)} km/h (${c.normals.records.fxiMax.date}). Valeurs de réanalyse à 30 km de maille : les extrêmes sont sous-estimés.`),
     h('div', { class: 'grid-3', style: 'margin-top:12px' },
       statCard('Sommet ou pied du Puy', [
         ['Pied du Puy', 'atterrissage vers 900 m'],
@@ -661,7 +665,7 @@ function renderMethod() {
     h('p', {}, `Un pilote titulaire du brevet initial (niveau vert) vole seul sur un site facile, avec des limites prudentes. Le décollage du sommet est évalué entre ${report.stage.windowHours[0]} h et ${report.stage.windowHours[1]} h, heure locale. La journée compte si au moins 2 heures d'affilée (montée en train, préparation, vol, retour) sont volables. Une heure est volable si : pluie < ${fr(LIMITS.rain, 1)} mm, vent moyen ≤ ${LIMITS.wind} km/h, rafales ≤ ${LIMITS.gust} km/h, vent à 850 hPa (≈ 1 500 m, l'altitude du sommet) ≤ ${LIMITS.wind850} km/h, ni nuage ni brouillard au décollage, pas d'orage. Aucune direction du vent n'est exclue : le sommet a huit aires de décollage. Ces seuils reprennent le profil « débutant » de Déco Radar ; ils sont à valider avec un moniteur, et c'est ton jugement sur place qui prime.`),
     h('p', {}, `Le site : ${SITES[0].name}, ${SITES[0].alt} m, ${SITES[0].note}.`),
     h('h3', {}, '2. Des vents de modèles aux vents du sommet'),
-    h('p', {}, `Un modèle de 25 km voit le Puy de Dôme comme une colline de la plaine et sous-estime le vent du sommet. Il n'y a pas d'anémomètre ouvert au sommet : les vents des modèles grossiers sont donc recalés sur AROME HD (1,3 km), qui résout le cône. Rapport des quantiles 0,75-0,95 de ERA5 (30 km) à AROME HD sur ${bias.n ?? '972'} heures d'octobre-novembre 2023-2025 : vent ×${fr(BIAS.coarse.wind, 2)}, rafales ×${fr(BIAS.coarse.gust, 2)} ; ICON-EU (7 km) : vent ×${fr(BIAS.medium.wind, 2)}, rafales ×${fr(BIAS.medium.gust, 2)} ; les modèles fins (≤ 2,5 km) ne sont pas corrigés. Sans rafale fournie (AIFS, WeatherNext, AI-GEFS), elle est estimée à ${fr(c.gustFromWind.a, 1)} + ${fr(c.gustFromWind.b, 2)} × vent (régression d'AROME HD au point du décollage). Au sommet, ses rafales valent environ 2,5 fois le vent moyen ; c'est pourquoi la limite de rafales (${LIMITS.gust} km/h) pèse plus que celle du vent moyen, et pourquoi l'écart rafales − vent n'est pas utilisé en plus.`),
+    h('p', {}, `Un modèle de 25 km voit le Puy de Dôme comme une colline de la plaine et sous-estime le vent du sommet. Il n'y a pas d'anémomètre ouvert au sommet : les vents des modèles grossiers sont donc recalés sur AROME HD (1,3 km), qui résout le cône. Rapport des quantiles 0,75-0,95 de ERA5 (30 km) à AROME HD sur ${bias.n ?? '972'} heures d'novembre-décembre 2023-2025 : vent ×${fr(BIAS.coarse.wind, 2)}, rafales ×${fr(BIAS.coarse.gust, 2)} ; ICON-EU (7 km) : vent ×${fr(BIAS.medium.wind, 2)}, rafales ×${fr(BIAS.medium.gust, 2)} ; les modèles fins (≤ 2,5 km) ne sont pas corrigés. Sans rafale fournie (AIFS, WeatherNext, AI-GEFS), elle est estimée à ${fr(c.gustFromWind.a, 1)} + ${fr(c.gustFromWind.b, 2)} × vent (régression d'AROME HD au point du décollage). Au sommet, ses rafales valent environ 2,5 fois le vent moyen ; c'est pourquoi la limite de rafales (${LIMITS.gust} km/h) pèse plus que celle du vent moyen, et pourquoi l'écart rafales − vent n'est pas utilisé en plus.`),
     h('p', { class: 'small muted' }, 'Limite connue : AROME HD n’est lui-même pas validé contre un anémomètre au sommet. Tout le décalage de niveau entre « vent du modèle » et « vent ressenti au décollage » est dans ce recalage.'),
     h('h3', {}, '3. Pas de calibration locale'),
     h('p', {}, `Chaque trajectoire reçoit une « marge de vol » (0 = à la limite). Une courbe logistique la transforme en probabilité que la journée soit réellement volable : α = ${fr(cal.alpha, 3)}, β = ${fr(cal.beta, 3)}. Faute d'observations au sommet, ces deux coefficients sont ceux appris sur 33 ans à la station de Millau (${cal.period}) : ils décrivent l'incertitude d'une prévision de 25 km par rapport à ce qu'on vole réellement, qui n'est pas la même ici. La probabilité affichée est donc plausible mais non calibrée localement.`),
@@ -674,9 +678,9 @@ function renderMethod() {
     h('h3', {}, '5 bis. Un avis d’une autre nature : Paraglidable'),
     h('p', {}, `Tous les systèmes ci-dessus donnent de la météo que ce site traduit en journée volable avec ses propres seuils. Paraglidable fait l'inverse : son réseau de neurones a appris, sur les vols déclarés par les pilotes, quelles situations GFS font voler. Ses erreurs ne sont pas les mêmes que les nôtres. Sa probabilité p, rapprochée de la normale c : logit(p') = logit(c) + ${fr(PG.shrink, 1)} × (logit(p) − logit(c)), entre dans le mélange avec un poids de ${fr(PG.weight, 1)}. Il n'est actif que si une clé d'API dont un point est au Puy de Dôme est configurée.`),
     h('h3', {}, '6. Des heures à la journée'),
-    h('p', {}, `${report.samples.toLocaleString('fr-FR')} trajectoires sont tirées : un système (au prorata de son poids), un de ses membres, et une journée réellement observée dans la réanalyse (11-25 octobre, 1993-2025). Un seul tirage décide si l'on suit le modèle ou la climatologie. L'aiguille vaut 360 × P − 180, où P est la part des trajectoires dont la journée est volable.`),
+    h('p', {}, `${report.samples.toLocaleString('fr-FR')} trajectoires sont tirées : un système (au prorata de son poids), un de ses membres, et une journée réellement observée dans la réanalyse (${c.window}, 1993-2025). Un seul tirage décide si l'on suit le modèle ou la climatologie. L'aiguille vaut 360 × P − 180, où P est la part des trajectoires dont la journée est volable.`),
     h('h3', {}, '7. Mises à jour et alertes'),
-    h('p', {}, `Toutes les 20 minutes, GitHub Actions lit l'heure du dernier run de chaque modèle sur Open-Meteo. Dès qu'un nouveau run atteint le 18 octobre, le système est retéléchargé, tout est recombiné, l'aiguille bouge et un point s'ajoute à l'historique. Si l'aiguille a bougé d'au moins ${report.stage.alertThreshold} points depuis la dernière alerte, un commentaire est posté sur l'issue d'alertes du dépôt (notification GitHub). Après le vol, écris « volé » ou « pas volé » dans cette issue : l'aiguille donne alors le verdict. Cette page revérifie toute seule toutes les 5 minutes.`),
+    h('p', {}, `Toutes les 20 minutes, GitHub Actions lit l'heure du dernier run de chaque modèle sur Open-Meteo. Dès qu'un nouveau run atteint ${report.stage.dayLabel}, le système est retéléchargé, tout est recombiné, l'aiguille bouge et un point s'ajoute à l'historique. Si l'aiguille a bougé d'au moins ${report.stage.alertThreshold} points depuis la dernière alerte, un commentaire est posté sur l'issue d'alertes du dépôt (notification GitHub). Après le vol, écris « volé » ou « pas volé » dans cette issue : l'aiguille donne alors le verdict. Cette page revérifie toute seule toutes les 5 minutes.`),
     h('h3', {}, 'Sources'),
     h('ul', {},
       h('li', {}, link('https://open-meteo.com/en/docs/ensemble-api', 'Open-Meteo Ensemble API'), ' : ECMWF IFS ENS et AIFS ENS, ECMWF EC46, NOAA GEFS et AI-GEFS, ECCC GEPS, DWD ICON-EPS, UKMO MOGREPS-G, MeteoSwiss ICON-CH1/CH2-EPS, Google WeatherNext 2.'),
